@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EVM Contract reader</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.5/ethers.umd.min.js"
+        type="application/javascript"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+        }
+        #contractForm {
+            display: flex;
+            flex-direction: column;
+            max-width: 500px;
+            margin: 20px auto;
+        }
+        #contractForm label, #contractForm input, #contractForm textarea, #contractForm select, #contractForm button {
+            margin-bottom: 10px;
+        }
+        #functionArgs {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <form id="contractForm">
+        <label for="abi">ABI:</label>
+        <textarea id="abi" rows="5"></textarea>
+
+        <label for="contractAddress">Contract Address:</label>
+        <input type="text" id="contractAddress">
+
+        <label for="rpcEndpoint">RPC Endpoint:</label>
+        <input type="text" id="rpcEndpoint">
+
+        <label for="functionSelect">Select Function:</label>
+        <select id="functionSelect"></select>
+
+        <div id="functionArgs"></div>
+
+        <button type="button" onclick="callContract()">Call Contract</button>
+    </form>
+
+    <div id="result"></div>
+
+    <script>
+        const abiInput = document.getElementById('abi');
+        const contractAddressInput = document.getElementById('contractAddress');
+        const rpcEndpointInput = document.getElementById('rpcEndpoint');
+        const functionSelect = document.getElementById('functionSelect');
+        const functionArgsDiv = document.getElementById('functionArgs');
+        const resultDiv = document.getElementById('result');
+
+        abiInput.addEventListener('input', updateFunctionList);
+
+        function updateFunctionList() {
+            try {
+                const abi = JSON.parse(abiInput.value);
+                functionSelect.innerHTML = '<option value="">Select a function</option>';
+                abi.forEach(item => {
+                    if (item.type === 'function') {
+                        const option = document.createElement('option');
+                        option.value = item.name;
+                        option.textContent = item.name;
+                        functionSelect.appendChild(option);
+                    }
+                });
+            } catch (error) {
+                console.error('Invalid ABI:', error);
+                functionSelect.innerHTML = '<option value="">Invalid ABI</option>';
+            }
+        }
+
+        functionSelect.addEventListener('change', updateFunctionArgs);
+
+        function updateFunctionArgs() {
+            functionArgsDiv.innerHTML = '';
+            const selectedFunctionName = functionSelect.value;
+            if (!selectedFunctionName) return;
+
+            try {
+                const abi = JSON.parse(abiInput.value);
+                const selectedFunction = abi.find(item => item.name === selectedFunctionName && item.type === 'function');
+                if (selectedFunction && selectedFunction.inputs) {
+                    selectedFunction.inputs.forEach((input, index) => {
+                        const label = document.createElement('label');
+                        label.textContent = `${input.name} (${input.type}):`;
+                        const inputField = document.createElement('input');
+                        inputField.type = 'text';
+                        inputField.id = `arg-${index}`;
+                        functionArgsDiv.appendChild(label);
+                        functionArgsDiv.appendChild(inputField);
+                    });
+                }
+            } catch (error) {
+                console.error('Error updating function arguments:', error);
+            }
+        }
+
+        async function callContract() {
+            try {
+                const abi = JSON.parse(abiInput.value);
+                const contractAddress = contractAddressInput.value;
+                const rpcEndpoint = rpcEndpointInput.value;
+                const selectedFunctionName = functionSelect.value;
+
+                if (!abi || !contractAddress || !rpcEndpoint || !selectedFunctionName) {
+                    resultDiv.textContent = 'Please fill in all fields.';
+                    return;
+                }
+
+                const provider = new ethers.JsonRpcProvider(rpcEndpoint);
+                const contract = new ethers.Contract(contractAddress, abi, provider);
+
+                const args = [];
+                const selectedFunction = abi.find(item => item.name === selectedFunctionName && item.type === 'function');
+                if (selectedFunction && selectedFunction.inputs) {
+                    selectedFunction.inputs.forEach((input, index) => {
+                        const argValue = document.getElementById(`arg-${index}`).value;
+                        args.push(argValue);
+                    });
+                }
+
+                // Encode the function call:
+                const encodedData = contract.interface.encodeFunctionData(selectedFunctionName, args);
+
+                // Perform eth_call:
+                const result = await provider.send("eth_call", [{
+                    to: contractAddress,
+                    data: encodedData,
+                }, "latest"]);
+
+                // Decode the result:
+                const decodedResult = contract.interface.decodeFunctionResult(selectedFunctionName, result);
+
+                resultDiv.textContent = JSON.stringify(decodedResult);
+
+            } catch (error) {
+                console.error('Error calling contract:', error);
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+
+</body>
+</html>
